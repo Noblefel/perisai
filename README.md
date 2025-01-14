@@ -3,7 +3,7 @@ A very basic and naive in-memory rate limiter middleware. Compatible with standa
 **THIS IS FOR LEARNING PURPOSE, SO DONT USE IT 😁**
 
 ```
-go mod init github.com/Noblefel/perisai
+go get github.com/Noblefel/perisai
 ```
 
 Example:
