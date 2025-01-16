@@ -8,76 +8,91 @@ import (
 	"time"
 )
 
-var contextKey = "user_id"
-
-func TestRunCleanup(t *testing.T) {
-	defer store.Delete(1)
-	ctx, cancel := context.WithCancel(context.Background())
-
-	for i := 0; i < 20; i++ {
-		store.Store(i, i)
-	}
-
-	go RunCleanup(ctx, 50*time.Millisecond)
-
-	if _, ok := store.Load(19); !ok {
-		t.Error("missing value") //should wait for tick
-	}
-
-	time.Sleep(70 * time.Millisecond)
-
-	if _, ok := store.Load(19); ok {
-		t.Error("value still exist")
-	}
-
-	cancel()
-	store.Store(1, 1)
-	time.Sleep(70 * time.Millisecond)
-
-	if _, ok := store.Load(1); !ok {
-		t.Error("value gets deleted after context has been cancelled")
-	}
-}
+var empty http.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {}
 
 func TestRateLimit(t *testing.T) {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	rateLimit := New(context.Background(), Options{
+		MaxRequest: 5,
+		ContextKey: "user_id",
+		Interval:   50 * time.Millisecond,
+	})
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("get", "/", nil)
-	ctx := context.WithValue(req.Context(), contextKey, 1)
-	req = req.WithContext(ctx)
-	RateLimit(handler, contextKey).ServeHTTP(rec, req)
+	var success int
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("should not be rate limited yet, got: %d", rec.Code)
-	}
-
-	if count, _ := store.Load(1); count == nil || count != 1 {
-		t.Errorf("count should be set to 1, got %v", count)
-	}
-
-	MaxRequest = 5
-	store.Swap(1, 5)
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest("get", "/", nil)
-	ctx = context.WithValue(req.Context(), contextKey, 1)
-	req = req.WithContext(ctx)
-	RateLimit(handler, contextKey).ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusTooManyRequests {
-		t.Errorf("should return 429, got: %d", rec.Code)
-	}
-
-	t.Run("should not interfere with different request", func(t *testing.T) {
-		//we know user id of 1 is already being rate limited
+	for i := 0; i < 15; i++ {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("get", "/", nil)
-		ctx := context.WithValue(req.Context(), contextKey, 2)
-		req = req.WithContext(ctx)
-		RateLimit(handler, contextKey).ServeHTTP(rec, req)
+		reqCtx := context.WithValue(req.Context(), "user_id", 1)
+		rateLimit(empty).ServeHTTP(rec, req.WithContext(reqCtx))
 
-		if rec.Code != http.StatusOK {
-			t.Errorf("want 200, got: %d", rec.Code)
+		if rec.Code == 200 {
+			success++
+		}
+	}
+
+	if success != 5 {
+		t.Errorf("successful request should be 5, got %d", success)
+	}
+
+	time.Sleep(75 * time.Millisecond) // give time for the tick
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("get", "/", nil)
+	reqCtx := context.WithValue(req.Context(), "user_id", 1)
+	rateLimit(empty).ServeHTTP(rec, req.WithContext(reqCtx))
+
+	if rec.Code == 429 {
+		t.Error("rate limiter should be cleaned up")
+	}
+
+	t.Run("with multiple users", func(t *testing.T) {
+		var success int
+
+		rateLimit := New(context.Background(), Options{
+			MaxRequest: 5,
+			ContextKey: "user_id",
+			Interval:   50 * time.Millisecond,
+		})
+
+		for i := 0; i < 10; i++ {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest("get", "/", nil)
+			reqCtx := context.WithValue(req.Context(), "user_id", i)
+			rateLimit(empty).ServeHTTP(rec, req.WithContext(reqCtx))
+
+			if rec.Code == 200 {
+				success++
+			}
+		}
+
+		if success != 10 {
+			t.Errorf("all 10 request should be successful, got %d", success)
+		}
+	})
+
+	t.Run("if cleanup is cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+
+		rateLimit := New(ctx, Options{
+			MaxRequest: 1,
+			ContextKey: "user_id",
+			Interval:   50 * time.Millisecond,
+		})
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("get", "/", nil)
+		reqCtx := context.WithValue(req.Context(), "user_id", 1)
+		rateLimit(empty).ServeHTTP(rec, req.WithContext(reqCtx))
+
+		cancel()
+		time.Sleep(75 * time.Millisecond) // give time for the tick
+
+		rec = httptest.NewRecorder()
+		req = httptest.NewRequest("get", "/", nil)
+		reqCtx = context.WithValue(req.Context(), "user_id", 1)
+		rateLimit(empty).ServeHTTP(rec, req.WithContext(reqCtx))
+
+		if rec.Code != 429 {
+			t.Errorf("want 429 status, got %d", rec.Code)
 		}
 	})
 }

@@ -20,17 +20,21 @@ import (
 )
 
 func main() {
-	go perisai.RunCleanup(context.Background(), 5*time.Second)
-	perisai.MaxRequest = 10
-
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", ping)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("ping"))
+	})
 
-	handler := auth(perisai.RateLimit(mux, "user_id"))
-	http.ListenAndServe("localhost:8080", handler)
+	rateLimit := perisai.New(context.Background(), perisai.Options{
+		MaxRequest: 10,
+		ContextKey: "user_id",
+		Interval:   5 * time.Second,
+	})
+
+	http.ListenAndServe("localhost:8080", auth(rateLimit(mux)))
 }
 
-// example authentication middleware
+// example a typical authentication middleware
 func auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tokenString := r.Header.Get("Authorization")
@@ -46,12 +50,7 @@ func auth(next http.Handler) http.Handler {
 	})
 }
 
-func ping(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("ping"))
-}
+func verifyToken(string) (int, error) { return 1, nil }
 
-func verifyToken(string) (int, error) {
-	return 1, nil
-}
 
 ```

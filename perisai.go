@@ -1,5 +1,5 @@
 // A very basic and naive in-memory rate limiter middleware.
-// Compatible with standard library as it uses http.Handler interface
+// Compatible with standard library as it uses http.Handler interface (i think?)
 //
 // THIS IS FOR LEARNING PURPOSE, SO DONT USE IT 😁
 package perisai
@@ -11,22 +11,70 @@ import (
 	"time"
 )
 
-// default resopnse if being rate limited
-var DefaultHandler http.HandlerFunc = handle
+type Options struct {
+	// default resopnse if being rate limited
+	DefaultHandler http.HandlerFunc
+	// how many request allowed (per time interval)
+	MaxRequest int
+	// to get value from the context e.g the user id to be stored in the rate limiter
+	ContextKey string
+	// waiting time to reset the rate limiter
+	Interval time.Duration
+}
 
-// how many request allowed (per time interval)
-var MaxRequest = 10
+// New return a rate limiter middleware and start the cleanup process in the background.
+// MUST put this after a middleware (like auth), where something like user ids are stored in the request context.
+// Use context.Context if you want to cancel the cleanup process.
+func New(ctx context.Context, options Options) func(next http.Handler) http.Handler {
+	if options.MaxRequest == 0 {
+		panic("max request not set")
+	}
 
-var store = new(sync.Map)
+	if options.ContextKey == "" {
+		panic("context key not set")
+	}
+
+	if options.Interval == 0 {
+		panic("interval not set")
+	}
+
+	if options.DefaultHandler == nil {
+		options.DefaultHandler = handle
+	}
+
+	store := new(sync.Map)
+
+	go cleanup(ctx, store, options.Interval)
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			contextVal := r.Context().Value(options.ContextKey)
+
+			v, ok := store.Load(contextVal)
+			if !ok {
+				v = 0
+			}
+
+			counts := v.(int) + 1
+
+			if counts > options.MaxRequest {
+				options.DefaultHandler(w, r)
+				return
+			}
+
+			store.Swap(contextVal, counts)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
 
 func handle(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusTooManyRequests)
 	w.Write([]byte("too many request sorry"))
 }
 
-// RunCleanup reset the rate limiter after given time
-func RunCleanup(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
+func cleanup(ctx context.Context, store *sync.Map, td time.Duration) {
+	ticker := time.NewTicker(td)
 
 	for {
 		select {
@@ -39,29 +87,4 @@ func RunCleanup(ctx context.Context, interval time.Duration) {
 			return
 		}
 	}
-}
-
-// Rate limit based on value from context.
-// Will proceed to the next handler if <= MaxRequest,otherwise will use DefaultHandler as response.
-// For example use this after a typical authentication middleware,
-// where something like user ids are stored in the request context
-func RateLimit(next http.Handler, contextKey any) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		contextVal := r.Context().Value(contextKey)
-
-		v, ok := store.Load(contextVal)
-		if !ok {
-			v = 0
-		}
-
-		count := v.(int) + 1
-
-		if count > MaxRequest {
-			DefaultHandler(w, r)
-			return
-		}
-
-		store.Swap(contextVal, count)
-		next.ServeHTTP(w, r)
-	})
 }
