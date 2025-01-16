@@ -17,7 +17,7 @@ type Options struct {
 	// how many request allowed (per time interval)
 	MaxRequest int
 	// to get value from the context e.g the user id to be stored in the rate limiter
-	ContextKey string
+	ContextKey any
 	// waiting time to reset the rate limiter
 	Interval time.Duration
 }
@@ -30,8 +30,8 @@ func New(ctx context.Context, options Options) func(next http.Handler) http.Hand
 		panic("max request not set")
 	}
 
-	if options.ContextKey == "" {
-		panic("context key not set")
+	if options.ContextKey == nil {
+		panic("context key is not set")
 	}
 
 	if options.Interval == 0 {
