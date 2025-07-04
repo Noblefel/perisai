@@ -12,8 +12,8 @@ import (
 )
 
 type Options struct {
-	// default resopnse if being rate limited
-	DefaultHandler http.HandlerFunc
+	// default response if request hits the rate limit
+	Handler http.HandlerFunc
 	// how many request allowed (per time interval)
 	MaxRequest int
 	// to get value from the context e.g the user id to be stored in the rate limiter
@@ -25,7 +25,7 @@ type Options struct {
 // New return a rate limiter middleware and start the cleanup process in the background.
 // MUST put this after a middleware (like auth), where something like user ids are stored in the request context.
 // Use context.Context if you want to cancel the cleanup process.
-func New(ctx context.Context, options Options) func(next http.Handler) http.Handler {
+func New(killswitch context.Context, options Options) func(next http.Handler) http.Handler {
 	if options.MaxRequest == 0 {
 		panic("max request not set")
 	}
@@ -38,13 +38,12 @@ func New(ctx context.Context, options Options) func(next http.Handler) http.Hand
 		panic("interval not set")
 	}
 
-	if options.DefaultHandler == nil {
-		options.DefaultHandler = handle
+	if options.Handler == nil {
+		options.Handler = defaultHandler
 	}
 
 	store := new(sync.Map)
-
-	go cleanup(ctx, store, options.Interval)
+	go cleanup(killswitch, store, options.Interval)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +57,7 @@ func New(ctx context.Context, options Options) func(next http.Handler) http.Hand
 			counts := v.(int) + 1
 
 			if counts > options.MaxRequest {
-				options.DefaultHandler(w, r)
+				options.Handler(w, r)
 				return
 			}
 
@@ -68,7 +67,7 @@ func New(ctx context.Context, options Options) func(next http.Handler) http.Hand
 	}
 }
 
-func handle(w http.ResponseWriter, r *http.Request) {
+func defaultHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusTooManyRequests)
 	w.Write([]byte("too many request sorry"))
 }
