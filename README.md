@@ -6,7 +6,7 @@ A very basic and naive in-memory rate limiter middleware. Compatible with standa
 go get github.com/Noblefel/perisai
 ```
 
-Example:
+**Example #1 - limit by user id:**
 
 ```go
 package main
@@ -14,7 +14,6 @@ package main
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/Noblefel/perisai"
 )
@@ -25,12 +24,7 @@ func main() {
 		w.Write([]byte("ping"))
 	})
 
-	rateLimit := perisai.New(context.Background(), perisai.Options{
-		MaxRequest: 10,
-		ContextKey: "user_id",
-		Interval:   5 * time.Second,
-	})
-
+	rateLimit := perisai.Default()
 	http.ListenAndServe("localhost:8080", auth(rateLimit(mux)))
 }
 
@@ -51,6 +45,35 @@ func auth(next http.Handler) http.Handler {
 }
 
 func verifyToken(string) (int, error) { return 1, nil }
+```
 
+**Example #2 - limit by ip (basic):**
 
+```go
+rateLimit := perisai.New(perisai.Options{
+	MaxRequest: 10,
+	Interval:   8 * time.Second,
+	ValueFunc:  perisai.FuncIP,
+})
+```
+
+**Example #3 - custom value func**:
+
+scenario: limit post request once every 10s. since method "post" will be too common to be incremented, we'll concat it with user id so it wont affect other users
+
+```go
+postrequestFunc := func (r *http.Request) any {
+	if r.Method != "POST" {
+		return nil // ignore other methods
+	}
+
+	id := r.Context().Value("user_id")
+	return fmt.Sprintf("%d:post", id)
+}
+
+rateLimit := perisai.New(perisai.Options{
+	MaxRequest: 1,
+	Interval:   time.Second * 10,
+	ValueFunc:  postrequestFunc,
+})
 ```
