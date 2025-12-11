@@ -40,8 +40,7 @@ func Default() func(next http.Handler) http.Handler {
 	})
 }
 
-// New return a rate limiter middleware and start the cleanup process in the background.
-// Use context.Context if you want to cancel the cleanup process.
+// New returns a rate limiter middleware and start the cleanup process in the background.
 func New(op Options) func(next http.Handler) http.Handler {
 	if op.MaxRequest == 0 {
 		panic("max request not set")
@@ -111,7 +110,6 @@ func defaultHandler(w http.ResponseWriter, r *http.Request) {
 
 func cleanup(ctx context.Context, store *sync.Map, td time.Duration) {
 	ticker := time.NewTicker(td)
-
 	for {
 		select {
 		case <-ticker.C:

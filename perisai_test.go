@@ -183,31 +183,3 @@ func TestRateLimit(t *testing.T) {
 		}
 	})
 }
-
-func main() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ping"))
-	})
-
-	rateLimit := Default()
-	http.ListenAndServe("localhost:8080", auth(rateLimit(mux)))
-}
-
-// example a typical authentication middleware
-func auth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tokenString := r.Header.Get("Authorization")
-
-		userId, err := verifyToken(tokenString)
-		if err != nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), "user_id", userId)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-func verifyToken(string) (int, error) { return 1, nil }
