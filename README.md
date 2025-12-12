@@ -59,16 +59,17 @@ rateLimit := perisai.New(perisai.Options{
 
 **Example #3 - custom value func**
 
-scenario: limit post request once every 10s. since method "post" will be too common to be incremented, we'll concat it with user id so it wont affect other users
+scenario: limit post request once every 10s. since method "post" will be too common to be incremented, we'll concat it with user id so it wont affect others. 
 
 ```go
 postrequestFunc := func (r *http.Request) any {
 	if r.Method != "POST" {
 		return nil // ignore other methods
 	}
-
-	id := r.Context().Value("user_id")
-	return fmt.Sprintf("%d:post", id)
+	if id := r.Context().Value("user_id"); id != nil {
+		return fmt.Sprintf("%d:post", id)
+	}
+	return nil
 }
 
 rateLimit := perisai.New(perisai.Options{
