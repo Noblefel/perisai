@@ -57,7 +57,7 @@ rateLimit := perisai.New(perisai.Options{
 })
 ```
 
-**Example #3 - custom value func**:
+**Example #3 - custom value func**
 
 scenario: limit post request once every 10s. since method "post" will be too common to be incremented, we'll concat it with user id so it wont affect other users
 
@@ -75,5 +75,24 @@ rateLimit := perisai.New(perisai.Options{
 	MaxRequest: 1,
 	Interval:   time.Second * 10,
 	ValueFunc:  postrequestFunc,
+})
+```
+
+**Example #4 - EXCEPTIONS**
+
+scenario: since every request is rate limited, then the static files will be blocked too. To prevent this, make sure to check for static path. 
+
+```go 
+selectiveFunc := func (r *http.Request) any {
+	if strings.HasPrefix(r.URL.Path, "/static") {
+		return nil // ignore static request
+	}
+	// the rest is yours
+}
+
+rateLimit := perisai.New(perisai.Options{
+	MaxRequest: 1,
+	Interval:   time.Second * 10,
+	ValueFunc:  selectiveFunc,
 })
 ```
